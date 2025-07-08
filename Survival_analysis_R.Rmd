@@ -17,7 +17,7 @@ library(MatchIt)
 
 
 ```{r Load gene scores data}
-gene_scores <- read_tsv("/Users/UCD/Research/Cancer/SurvivalCurves/data/all_thresholded.by_genes.txt") |> 
+gene_scores <- read_tsv("~/data/all_thresholded.by_genes.txt") |> 
   t() |> 
   as.data.frame()
 
@@ -34,7 +34,7 @@ gene_scores$barcode <- substr(gene_scores$barcode, 1, 12)
 ```{r Load clinical data}
 
 clinical_data <- read_csv(
-  "/Users/UCD/Research/Cancer/SurvivalCurves/data/clinical2.csv",
+  "~/data/clinical2.csv",
 )|>
   select(
       barcode,
@@ -63,7 +63,7 @@ clinical_data <- read_csv(
 
 
 ```{r Load phenotype data} 
-phen <- read_csv("/Users/UCD/Research/Cancer/SurvivalCurves/data/dataandphen.csv") |> 
+phen <- read_csv("~/data/dataandphen.csv") |> 
   select(barcode, subtype) |> 
   mutate(barcode = substr(barcode, 1, 12))
 ```
