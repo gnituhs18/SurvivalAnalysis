@@ -1,0 +1,143 @@
+---
+title: "Survival analysis for Luminal A copy number gain genes"
+output: html_notebook
+---
+
+```{r setup, message=FALSE}
+# Load libraries
+library(survival)
+library(survminer)
+library(dplyr)
+library(readr)
+library(tidyr)
+library(tibble)
+library(stats)
+library(MatchIt)
+```
+
+
+```{r Load gene scores data}
+gene_scores <- read_tsv("/Users/UCD/Research/Cancer/SurvivalCurves/data/all_thresholded.by_genes.txt") |> 
+  t() |> 
+  as.data.frame()
+
+# First row becomes header
+colnames(gene_scores) <- gene_scores[1, ]
+gene_scores <- gene_scores[-1, ]
+
+# Create the barcode column and shorten barcode to first 12 characters
+gene_scores <- rownames_to_column(gene_scores, var = "barcode")
+gene_scores$barcode <- substr(gene_scores$barcode, 1, 12)
+```
+
+
+```{r Load clinical data}
+
+clinical_data <- read_csv(
+  "/Users/UCD/Research/Cancer/SurvivalCurves/data/clinical2.csv",
+)|>
+  select(
+      barcode,
+      vital_status,
+      days_to_death,
+      paper_days_to_last_followup,
+      age_at_diagnosis,
+      ajcc_pathologic_stage,
+      tumor_grade,
+      prior_treatment,
+      race,
+      ethnicity,
+      paper_BRCA_Subtype_PAM50,
+      year_of_diagnosis
+    ) %>%
+    mutate(
+      # Calculate survival time: prefer days_to_death, else use follow-up
+      survival = ifelse(!is.na(days_to_death), days_to_death, paper_days_to_last_followup),
+      # Set status: 1 = dead, 0 = alive
+      status = ifelse(vital_status == "Dead", 1, 0),
+      # Shorten barcode to 12 characters
+      barcode = substr(barcode, 1, 12)
+    ) %>%
+    filter(!is.na(survival) & !is.na(status)) # Remove rows with missing survival or status
+```
+
+
+```{r Load phenotype data} 
+phen <- read_csv("/Users/UCD/Research/Cancer/SurvivalCurves/data/dataandphen.csv") |> 
+  select(barcode, subtype) |> 
+  mutate(barcode = substr(barcode, 1, 12))
+```
+
+
+```{r merge datasets}
+merged_data <- clinical_data |> 
+  full_join(phen, by = "barcode") |> 
+  full_join(gene_scores, by = "barcode") |>
+  filter(subtype == "LumA")
+```
+
+
+```{r define surival analysis function}
+plot_lumA_gene_survival <- function(df, gene_list) {
+  pvals <- c()
+  
+  for (gene in gene_list) {
+    
+    # Create treatment variable: gain (>0) vs no gain
+    gene_data <- df |> 
+      filter(subtype == "LumA") |>
+      mutate(
+        gene_value = as.numeric(as.character(.data[[gene]])),
+        gain = ifelse(gene_value > 0, "Gain", "No Gain")
+      ) |> 
+      filter(!is.na(gene_value), !is.na(survival), !is.na(status))
+    
+    # Count number of patients in each group
+    group_counts <- table(gene_data$gain)
+    n_gain <- ifelse("Gain" %in% names(group_counts), group_counts["Gain"], 0)
+    n_no_gain <- ifelse("No Gain" %in% names(group_counts), group_counts["No Gain"], 0)
+    
+    cat("\nGene:", gene, "\n")
+    cat("Gain group:", n_gain, "patients\n")
+    cat("No Gain group:", n_no_gain, "patients\n")
+    
+    # Skip if too few samples
+    if (n_gain < 5 || n_no_gain < 5) {
+      cat("  --> Skipping plot due to too few samples.\n\n")
+      next
+    }
+    
+    # Build survival object
+    surv_obj <- Surv(as.numeric(gene_data$survival), as.numeric(gene_data$status))
+    fit <- survfit(surv_obj ~ gain, data = gene_data)
+    
+    # Compute p-value
+    test <- survdiff(surv_obj ~ gain, data = gene_data)
+    pval <- 1 - pchisq(test$chisq, df = length(test$n) - 1)
+    pvals <- c(pvals, pval)
+    
+    # Plot
+    plot_title <- paste0("Luminal A - ", gene, " Survival Plot")
+    ggsurv <- ggsurvplot(
+      fit, 
+      data = gene_data,
+      pval = TRUE,
+      legend.labs = c("Gain", "No Gain"),
+      title = plot_title
+    )
+    print(ggsurv)
+    
+    cat(gene, "p-value:", pval, "\n\n")
+  }
+  
+  # Return p-values if you want to collect them
+  return(pvals)
+}
+```
+
+```{r}
+luma_gene_list <- c("PAX8", "GLI2", "FGF10", "RICTOR", "NIPBL", "DROSHA")
+
+plot_lumA_gene_survival(survival_subtypes, luma_gene_list)
+```
+
